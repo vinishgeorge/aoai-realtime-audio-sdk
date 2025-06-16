@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
 import uvicorn
@@ -10,6 +11,7 @@ from loguru import logger
 import os
 from dotenv import load_dotenv
 from azure.identity.aio import DefaultAzureCredential
+from langchain_community.llms import HuggingFaceEndpoint
 from azure.core.credentials import AzureKeyCredential
 from rtclient import (
     InputAudioTranscription,
@@ -46,6 +48,10 @@ class ControlMessage(TypedDict):
     action: str
     greeting: str | None = None
     id: str | None = None
+
+
+class Phi3Request(BaseModel):
+    prompt: str
 
 
 WSMessage = Union[TextDelta, Transcription, UserMessage, ControlMessage]
@@ -241,6 +247,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/phi3")
+async def phi3_endpoint(req: Phi3Request):
+    hf_endpoint = os.getenv("PHI3_ENDPOINT")
+    hf_token = os.getenv("HF_API_TOKEN")
+    llm = HuggingFaceEndpoint(
+        endpoint_url=hf_endpoint,
+        huggingfacehub_api_token=hf_token,
+    )
+    response = await llm.apredict(req.prompt)
+    return {"response": response}
 
 
 @app.websocket("/realtime")
