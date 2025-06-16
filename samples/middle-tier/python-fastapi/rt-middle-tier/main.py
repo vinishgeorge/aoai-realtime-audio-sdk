@@ -9,7 +9,7 @@ import asyncio
 from loguru import logger
 import os
 from dotenv import load_dotenv
-from azure.identity import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential
 from azure.core.credentials import AzureKeyCredential
 from rtclient import (
     InputAudioTranscription,
@@ -72,7 +72,12 @@ class RTSession:
 
         if backend == "azure" or backend is None:
             print("Using Azure OpenAI backend")
-            print("azure openai endpoint",os.getenv("AZURE_OPENAI_ENDPOINT")," deployemnt " ,os.getenv("AZURE_OPENAI_DEPLOYMENT"))
+            print(
+                "azure openai endpoint",
+                os.getenv("AZURE_OPENAI_ENDPOINT"),
+                " deployemnt ",
+                os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            )
             return RTClient(
                 url=os.getenv("AZURE_OPENAI_ENDPOINT"),
                 token_credential=DefaultAzureCredential(),
