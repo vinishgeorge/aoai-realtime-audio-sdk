@@ -14,7 +14,7 @@ The service establishes a WebSocket server that communicates with clients using 
 - **Secure Authentication**: For Azure, uses async token credentials via `DefaultAzureCredential` from `azure.identity.aio`.
 - **Async Implementation**: Leverages FastAPI's async capabilities for efficient WebSocket handling.
 - **Type Safety**: Utilizes Python type hints throughout the codebase.
-- **Phi-3 Endpoint**: Includes a simple REST API for interacting with the Phi-3 model via LangChain.
+- **Phi-3 Endpoint**: Provides a REST API for interacting with a local Phi-3 model via Ollama and LangChain.
 
 ## Environment Variables
 
@@ -39,8 +39,8 @@ Authentication is handled via `DefaultAzureCredential` from `azure.identity.aio`
 
 ### Using Phi-3 via LangChain
 
-- `PHI3_ENDPOINT`: Hugging Face endpoint URL for the Phi-3 model.
-- `HF_API_TOKEN`: Hugging Face API token used to access the endpoint.
+- `OLLAMA_BASE_URL` (optional): Base URL for your Ollama server (default `http://localhost:11434`).
+- `PHI3_MODEL` (optional): Name of the model to load in Ollama (default `phi3`).
 
 ## Setup and Run
 
@@ -66,7 +66,7 @@ Authentication is handled via `DefaultAzureCredential` from `azure.identity.aio`
     ```
 
 The server listens on `http://localhost:<PORT>` and accepts WebSocket connections at the `/realtime` path.
-It also provides a `POST /phi3` endpoint which sends prompts to the Phi-3 model using LangChain and returns the generated text.
+It also provides a `POST /phi3` endpoint which sends prompts to a local Phi-3 model via Ollama and returns the generated text.
 
 ## Development Setup
 
