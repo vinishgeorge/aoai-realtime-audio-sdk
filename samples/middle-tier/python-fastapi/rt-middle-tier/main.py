@@ -70,11 +70,13 @@ class RTSession:
     def _initialize_client(self, backend: str | None):
         self.logger.debug(f"Initializing RT client with backend: {backend}")
 
-        if backend == "azure":
+        if backend == "azure" or backend is None:
+            print("Using Azure OpenAI backend")
+            print("azure openai endpoint",os.getenv("AZURE_OPENAI_ENDPOINT")," deployemnt " ,os.getenv("AZURE_OPENAI_DEPLOYMENT"))
             return RTClient(
                 url=os.getenv("AZURE_OPENAI_ENDPOINT"),
                 token_credential=DefaultAzureCredential(),
-                deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+                azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             )
         return RTClient(
             key_credential=AzureKeyCredential(os.getenv("OPENAI_API_KEY")),
