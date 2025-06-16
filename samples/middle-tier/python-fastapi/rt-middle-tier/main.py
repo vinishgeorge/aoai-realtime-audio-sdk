@@ -56,31 +56,35 @@ class RTSession:
         self.session_id = str(uuid.uuid4())
         self.websocket = websocket
         self.logger = logger.bind(session_id=self.session_id)
+        self.credential: DefaultAzureCredential | None = None
         self.client = self._initialize_client(backend)
         self.logger.info("New session created")
 
     async def __aenter__(self):
+        if self.credential is not None:
+            await self.credential.__aenter__()
         await self.client.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.client.__aexit__(exc_type, exc_value, traceback)
+        if self.credential is not None:
+            await self.credential.__aexit__(exc_type, exc_value, traceback)
         self.logger.info("Session closed")
 
     def _initialize_client(self, backend: str | None):
         self.logger.debug(f"Initializing RT client with backend: {backend}")
 
         if backend == "azure" or backend is None:
-            print("Using Azure OpenAI backend")
-            print(
-                "azure openai endpoint",
+            self.logger.info(
+                "Using Azure OpenAI backend at %s with deployment %s",
                 os.getenv("AZURE_OPENAI_ENDPOINT"),
-                " deployemnt ",
                 os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             )
+            self.credential = DefaultAzureCredential()
             return RTClient(
                 url=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                token_credential=DefaultAzureCredential(),
+                token_credential=self.credential,
                 azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             )
         return RTClient(
