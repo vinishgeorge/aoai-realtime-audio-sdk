@@ -17,6 +17,7 @@ azure-identity = "^1.19.0"
 azure-core = "^1.32.0"
 websockets = "^14.1"
 rtclient = { url = "https://github.com/Azure-Samples/aoai-realtime-audio-sdk/releases/download/py%2Fv0.5.3/rtclient-0.5.3.tar.gz" }
+langchain-community = "^0.3.25"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
