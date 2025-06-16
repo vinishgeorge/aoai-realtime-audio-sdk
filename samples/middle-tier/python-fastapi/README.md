@@ -11,7 +11,7 @@ The service establishes a WebSocket server that communicates with clients using 
 - **Simplified Protocol**: Uses a custom, lightweight communication protocol.
 - **Backend Support**: Works with both Azure OpenAI and OpenAI Realtime APIs.
 - **Extendable**: Easily extend the protocol to cover additional functionalities.
-- **Secure Authentication**: For Azure, utilizes token credentials through `DefaultAzureCredential`.
+- **Secure Authentication**: For Azure, uses async token credentials via `DefaultAzureCredential` from `azure.identity.aio`.
 - **Async Implementation**: Leverages FastAPI's async capabilities for efficient WebSocket handling.
 - **Type Safety**: Utilizes Python type hints throughout the codebase.
 
@@ -29,7 +29,7 @@ Set the following environment variables in a `.env` file at the root of the proj
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL.
 - `AZURE_OPENAI_DEPLOYMENT`: The name of your Azure OpenAI deployment.
 
-Authentication is handled via `DefaultAzureCredential`, supporting environment-based credentials, managed identities, or Azure CLI authentication.
+Authentication is handled via `DefaultAzureCredential` from `azure.identity.aio`, requiring async credentials. It supports environment-based credentials, managed identities, or Azure CLI authentication.
 
 ### Using OpenAI Realtime API Backend
 
@@ -49,6 +49,9 @@ Authentication is handled via `DefaultAzureCredential`, supporting environment-b
     ```bash
     poetry install
     ```
+
+    This installs `azure-identity`, which contains the async `DefaultAzureCredential` used by the sample. If you run the code outside Poetry, ensure the package is installed with `pip install azure-identity`.
+    The server opens this credential as an async context manager.
 
 3. **Start the Server**
 
@@ -113,6 +116,6 @@ class ControlMessage(TypedDict):
 ## Notes
 
 - Ensure that the required environment variables are set correctly for your chosen backend.
-- For Azure backend, authentication relies on DefaultAzureCredential, so configure your environment for token-based authentication.
+- For Azure backend, authentication relies on the async `DefaultAzureCredential` from `azure.identity.aio`, used as an async context manager. Configure your environment for token-based authentication.
 - Logging is configured using Loguru and can be adjusted through its configuration.
 - The server implements CORS middleware with permissive settings for development. Adjust these settings for production use.
