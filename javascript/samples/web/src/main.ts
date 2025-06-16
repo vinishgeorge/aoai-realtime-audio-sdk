@@ -1,14 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+import { get } from "http";
 import { Player } from "./player.ts";
 import { Recorder } from "./recorder.ts";
 import "./style.css";
-import { LowLevelRTClient, SessionUpdateMessage, Voice } from "rt-client";
+import { LowLevelRTClient, ResponseDoneMessage, ResponseOutputItemDoneMessage, RTClient, SessionUpdateMessage, Voice } from "rt-client";
 
 let realtimeStreaming: LowLevelRTClient;
 let audioRecorder: Recorder;
 let audioPlayer: Player;
+let sawFunctionCall = false;
+
+
 
 async function start_realtime(endpoint: string, apiKey: string, deploymentOrModel: string) {
   if (isAzureOpenAI()) {
@@ -19,7 +23,7 @@ async function start_realtime(endpoint: string, apiKey: string, deploymentOrMode
 
   try {
     console.log("sending session config");
-    await realtimeStreaming.send(createConfigMessage());
+    await realtimeStreaming.send(createConfigMessage(deploymentOrModel));
   } catch (error) {
     console.log(error);
     makeNewTextBlock("[Connection error]: Unable to send initial config message. Please check your endpoint and authentication details.");
@@ -30,18 +34,60 @@ async function start_realtime(endpoint: string, apiKey: string, deploymentOrMode
   await Promise.all([resetAudio(true), handleRealtimeMessages()]);
 }
 
-function createConfigMessage() : SessionUpdateMessage {
+function createConfigMessage(deploymentOrModel: string): SessionUpdateMessage {
 
-  let configMessage : SessionUpdateMessage = {
+  let configMessage: SessionUpdateMessage = {
     type: "session.update",
     session: {
+      instructions: "Ask for the company name and postcode, then validate the response",//getBusinessInfoInstructionTemplate(),
+      model: deploymentOrModel,
       turn_detection: {
         type: "server_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+      
       },
-      input_audio_transcription: {
-        model: "whisper-1"
-      }
-    }
+      input_audio_transcription:{
+        model: "whisper-1",
+      },
+      temperature: 0.7,
+
+      tools: [
+        {
+          type: "function",
+          name: "get_company_info",
+          description: "Get information about company by name and postcode",
+          parameters: {
+            type: "object",
+            properties: {
+              companyName: {
+                type: "string",
+                description: "The name of the company"
+              },
+              postcode: {
+                type: "string",
+                description: "The postcode of the company"
+              }
+            },
+            required: ["companyName", "postcode"]
+          }
+        },
+        // {
+        //   type: "function",
+        //   name: "get_weather_for_location",
+        //   description: "Get the weather for a location",
+        //   parameters: {
+        //     type: "object",
+        //     properties: {
+        //       location: { type: "string", description: "City, e.g. Pune, India" },
+        //       unit: { type: "string", enum: ["c", "f"], description: "Celsius or Fahrenheit" }
+        //     },
+        //     required: ["location", "unit"],
+        //   },
+        // },
+      ],
+    },
   };
 
   const systemMessage = getSystemMessage();
@@ -59,6 +105,58 @@ function createConfigMessage() : SessionUpdateMessage {
   }
 
   return configMessage;
+}
+async function getWeatherForLocation(location: string, unit: string) {
+  // Stubbed data; swap in a real API if desired
+
+  return {
+    location,
+    temperature: 25,
+    unit,
+    description: "Sunny with some clouds",
+  };
+}
+
+async function handleFunctionCall(message: ResponseOutputItemDoneMessage) {
+  console.log("Function call", message);
+  let item = message.item;
+  if (item.type === "function_call") {
+    sawFunctionCall = true;
+
+    // 5a) Parse the arguments
+    let args;
+    try {
+      args = JSON.parse(item.arguments);
+    } catch (e) {
+      console.error("❌ Could not parse function_call arguments:", e);
+      return;
+    }
+
+    console.log("📥 Function call args:", args);
+
+    // 5b) Invoke your tool
+    let result;
+    try {
+      // result = await getWeatherForLocation(args.location, args.unit);
+      result = await getCompanyInfo(args.companyName, args.postcode);
+    } catch (e) {
+      console.error("❌ Tool execution failed:", e);
+      result = { error: "Tool failed" };
+    }
+
+    console.log("🔧 Tool result:", result);
+
+    // 5c) Inject the function_call_output
+    await realtimeStreaming.send({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: item.call_id,              // guaranteed non-null here
+        output: JSON.stringify(result),
+      },
+    });
+    // Don’t send response.create yet—wait for the model’s response.done
+  }
 }
 
 async function handleRealtimeMessages() {
@@ -92,7 +190,11 @@ async function handleRealtimeMessages() {
         latestInputSpeechBlock.textContent += " User: " + message.transcript;
         break;
       case "response.done":
+        handleResponseDone(message);
         formReceivedTextContainer.appendChild(document.createElement("hr"));
+        break;
+      case "response.output_item.done":
+        handleFunctionCall(message);
         break;
       default:
         consoleLog = JSON.stringify(message, null, 2);
@@ -277,3 +379,96 @@ formEndpointField.addEventListener('change', async () => {
   guessIfIsAzureOpenAI();
 });
 guessIfIsAzureOpenAI();
+
+
+async function handleResponseDone(message: ResponseDoneMessage) {
+  console.log("🔚 Response done event triggered", message);
+  if (sawFunctionCall) {
+    // This done is the end of the function_call segment → resume the model
+    sawFunctionCall = false;
+    await realtimeStreaming.send({ type: "response.create" });
+    return;
+  } else {
+    //print the final summary
+    // check if the response has a summary
+    // if (e.response.output[0].content[0].transcript) {
+    //   console.log("Final summary:", e.response.output[0].content[0].transcript);
+    // }
+  }
+  // Otherwise it’s the end of the summary turn → close
+  console.log("✅ Conversation complete; closing socket.");
+}
+
+function getBusinessInfoInstructionTemplate(): string {
+  console.log('Getting business information instructions');
+
+  const baseInstructions = `You are John, a business consultant having a conversation to gather information about a company.
+
+    Ask the following questions one at a time, waiting for a response before moving to the next question:
+    1. What is the name of your company?
+    2. What is your business postcode?
+    3. Is this an existing business or are you looking to start a new one?
+    4. What are the main aims of your business?
+    5. What are your core business activities?
+    6. How many employees do you currently have?
+    7. What is your approximate annual turnover?
+    8. What are your business aspirations for the next 3-5 years?
+
+    Be professional but friendly in your approach. If you receive unclear or incomplete answers, politely ask for clarification.
+
+
+    After gathering all the information, provide a brief summary of what you've learned about their business and ask if there's anything they'd like to add or modify.
+   
+    Remember that you are a human and not a machine, you speak with human flaws and emotions,
+    occasionally making mistakes and using filler words such as 'um'.
+    Whilst bearing this in mind, remember that you are the expert, and you should speak with confidence on the topic of your company.
+
+    Keep your responses concise and focused on the specific job requirements.
+
+    React accordingly to negative/closed answers or positive/open answers.
+    `;
+
+  return baseInstructions;
+}
+
+
+function getCompanyInfo(companyName: any, postcode: any): Promise<any> {
+  console.log("Getting company info for:", companyName, postcode);
+  const url = "http://localhost:8000/exemplas-api/api/v1/companieshouse/validate";
+  const data = {
+    companyName: companyName,
+    postcode: postcode,
+  };
+
+  const options = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  };
+
+  return fetch(url, options)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((result) => {
+      console.log("Company Info Response:", result);
+      //{\"status\":\"match_found\",\"message\":\"Active company found matching details.\",\"matched_company\":{\"company_name\":\"HEYDON INVESTMENTS LIMITED\",\"company_number\":\"11163462\",\"address_snippet\":\"104 High Street London Colney, St. Albans\"},\"matching_companies\":null}
+      //create a string with all attributes of the matched_company
+      let matchedCompany = result.matched_company;
+      if (matchedCompany) {
+        result= `Company Name: ${matchedCompany.company_name}, Company Number: ${matchedCompany.company_number}, Address Snippet: ${matchedCompany.address_snippet}`;
+      }
+      
+      return result;
+    })
+    .catch((error) => {
+      console.error("Error fetching company info:", error);
+      return { error: "Failed to fetch company info" };
+    });
+}
+

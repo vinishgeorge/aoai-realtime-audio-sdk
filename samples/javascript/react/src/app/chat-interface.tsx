@@ -26,6 +26,9 @@ import {
   RTInputAudioItem,
   RTResponse,
   TurnDetection,
+  LowLevelRTClient,
+  SessionUpdateMessage,
+  ResponseDoneMessage
 } from "rt-client";
 import { AudioHandler } from "@/lib/audio";
 
@@ -41,7 +44,7 @@ interface ToolDeclaration {
 }
 
 const ChatInterface = () => {
-  const [isAzure, setIsAzure] = useState(false);
+  const [isAzure, setIsAzure] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [deployment, setDeployment] = useState("");
@@ -56,8 +59,10 @@ const ChatInterface = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const clientRef = useRef<RTClient | null>(null);
+  const realtimeStreaming = useRef<LowLevelRTClient | null>(null);
   const audioHandlerRef = useRef<AudioHandler | null>(null);
-
+  const [sawFunctionCall, setSawFunctionCall] = useState(false);
+  const playbackActive = useRef(false);
   const addTool = () => {
     setTools([...tools, { name: "", parameters: "", returnValue: "" }]);
   };
@@ -78,26 +83,17 @@ const ChatInterface = () => {
     if (!isConnected) {
       try {
         setIsConnecting(true);
-        clientRef.current = isAzure
-          ? new RTClient(new URL(endpoint), { key: apiKey }, { deployment })
-          : new RTClient(
-              { key: apiKey },
-              { model: "gpt-4o-realtime-preview-2024-10-01" },
-            );
-        const modalities: Modality[] =
-          modality === "audio" ? ["text", "audio"] : ["text"];
-        const turnDetection: TurnDetection = useVAD
-          ? { type: "server_vad" }
-          : null;
-        clientRef.current.configure({
-          instructions: instructions?.length > 0 ? instructions : undefined,
-          input_audio_transcription: { model: "whisper-1" },
-          turn_detection: turnDetection,
-          tools,
-          temperature,
-          modalities,
-        });
-        startResponseListener();
+        console.log("Connecting...", apiKey, endpoint, deployment);
+        realtimeStreaming.current = new LowLevelRTClient(new URL(endpoint), { key: apiKey }, { deployment: deployment });
+        await realtimeStreaming.current.send(createConfigMessage(deployment));
+        // const modalities: Modality[] =
+        //   modality === "audio" ? ["text", "audio"] : ["text"];
+        // const turnDetection: TurnDetection = useVAD
+        //   ? { type: "server_vad" }
+        //   : null;
+
+        // startResponseListener();
+        handleRealtimeMessages();
 
         setIsConnected(true);
       } catch (error) {
@@ -110,11 +106,151 @@ const ChatInterface = () => {
     }
   };
 
+  const handleRealtimeMessages = async () => {
+    if (!realtimeStreaming.current) return;
+    for await (const message of realtimeStreaming.current.messages()) {
+      let consoleLog = "" + message.type;
+      switch (message.type) {
+        case "session.created":
+          consoleLog = "Session created";
+          break;
+        case "response.audio_transcript.delta":
+          consoleLog = "Audio transcript delta";
+          break;
+        case "response.audio_transcript.done":
+          consoleLog = "Audio transcript done";
+          appendChatMessage(message.transcript, "assistant");
+          break;
+        case "response.audio.delta":
+
+          await playAudio(message.delta);
+          consoleLog = "Audio delta";
+          break;
+        case "response.audio.done":
+          consoleLog = "Audio done";
+          break;
+        // case "response.function_call":
+        case "input_audio_buffer.speech_started":
+          consoleLog = "Speech started";
+          if (playbackActive.current) {
+            //add sleep before stopping
+            audioHandlerRef.current?.stopStreamingPlayback();
+            playbackActive.current = false;
+          }
+          break;
+        case "conversation.item.input_audio_transcription.completed":
+          consoleLog = "Input audio transcription completed";
+          appendChatMessage(message.transcript, "user");
+          break;
+        case "response.done":
+          consoleLog = "Response done";
+          handleResponseDone(message);
+          break;
+        case "response.output_item.done":
+          consoleLog = "Output item done";
+          //handleFunctionCall(message);
+          break;
+        default:
+          consoleLog = JSON.stringify(message, null, 2);
+          break
+      }
+      if (consoleLog) {
+        console.log(consoleLog);
+      }
+    }
+  }
+
+  const playAudio = async (audio: string) => {
+    if (!audioHandlerRef.current) {
+      return
+    }
+    if (!playbackActive.current) {
+      playbackActive.current = true;
+      audioHandlerRef.current?.startStreamingPlayback();
+    }
+    const binary = atob(audio);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    audioHandlerRef.current.playChunk(bytes);
+  };
+
+  const appendChatMessage = (message: string, role: "user" | "assistant" | "status") => {
+
+    let currentMessage = {
+      type: role,
+      content: message,
+    }
+    setMessages((prevMessages) => [
+      ...prevMessages,
+      currentMessage
+    ]);
+
+  };
+  const handleResponseDone = async (message: ResponseDoneMessage) => {
+    if (!realtimeStreaming.current) return;
+    console.log("🔚 Response done event triggered", message);
+    if (sawFunctionCall) {
+      // This done is the end of the function_call segment → resume the model
+      setSawFunctionCall(false);
+      await realtimeStreaming.current.send({
+        type: "response.create"
+      });
+      return;
+    } else {
+      //print the final summary
+      // check if the response has a summary
+      // if (e.response.output[0].content[0].transcript) {
+      //   console.log("Final summary:", e.response.output[0].content[0].transcript);
+      // }
+    }
+    // Otherwise it’s the end of the summary turn → close
+    console.log("✅ Conversation complete; closing socket.");
+  }
+
+  const createConfigMessage = (deploymentOrModel: string): SessionUpdateMessage => ({
+    type: "session.update",
+    session: {
+      instructions: "Ask for the company name and postcode, then validate the response",
+      model: deploymentOrModel,
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+      },
+      input_audio_transcription: {
+        model: "whisper-1",
+      },
+      temperature: 0.7,
+      tools: [
+        {
+          type: "function",
+          name: "get_company_info",
+          description: "Get information about company by name and postcode",
+          parameters: {
+            type: "object",
+            properties: {
+              companyName: {
+                type: "string",
+                description: "The name of the company",
+              },
+              postcode: {
+                type: "string",
+                description: "The postcode of the company",
+              },
+            },
+            required: ["companyName", "postcode"],
+          },
+        },
+      ],
+    },
+  });
+
+
   const disconnect = async () => {
-    if (clientRef.current) {
+    if (realtimeStreaming.current) {
       try {
-        await clientRef.current.close();
-        clientRef.current = null;
+        await realtimeStreaming.current.close();
+        realtimeStreaming.current = null;
         setIsConnected(false);
       } catch (error) {
         console.error("Disconnect failed:", error);
@@ -122,79 +258,79 @@ const ChatInterface = () => {
     }
   };
 
-  const handleResponse = async (response: RTResponse) => {
-    for await (const item of response) {
-      if (item.type === "message" && item.role === "assistant") {
-        const message: Message = {
-          type: item.role,
-          content: "",
-        };
-        setMessages((prevMessages) => [...prevMessages, message]);
-        for await (const content of item) {
-          if (content.type === "text") {
-            for await (const text of content.textChunks()) {
-              message.content += text;
-              setMessages((prevMessages) => {
-                prevMessages[prevMessages.length - 1].content = message.content;
-                return [...prevMessages];
-              });
-            }
-          } else if (content.type === "audio") {
-            const textTask = async () => {
-              for await (const text of content.transcriptChunks()) {
-                message.content += text;
-                setMessages((prevMessages) => {
-                  prevMessages[prevMessages.length - 1].content =
-                    message.content;
-                  return [...prevMessages];
-                });
-              }
-            };
-            const audioTask = async () => {
-              audioHandlerRef.current?.startStreamingPlayback();
-              for await (const audio of content.audioChunks()) {
-                audioHandlerRef.current?.playChunk(audio);
-              }
-            };
-            await Promise.all([textTask(), audioTask()]);
-          }
-        }
-      }
-    }
-  };
+  // const handleResponse = async (response: RTResponse) => {
+  //   for await (const item of response) {
+  //     if (item.type === "message" && item.role === "assistant") {
+  //       const message: Message = {
+  //         type: item.role,
+  //         content: "",
+  //       };
+  //       setMessages((prevMessages) => [...prevMessages, message]);
+  //       for await (const content of item) {
+  //         if (content.type === "text") {
+  //           for await (const text of content.textChunks()) {
+  //             message.content += text;
+  //             setMessages((prevMessages) => {
+  //               prevMessages[prevMessages.length - 1].content = message.content;
+  //               return [...prevMessages];
+  //             });
+  //           }
+  //         } else if (content.type === "audio") {
+  //           const textTask = async () => {
+  //             for await (const text of content.transcriptChunks()) {
+  //               message.content += text;
+  //               setMessages((prevMessages) => {
+  //                 prevMessages[prevMessages.length - 1].content =
+  //                   message.content;
+  //                 return [...prevMessages];
+  //               });
+  //             }
+  //           };
+  //           const audioTask = async () => {
+  //             audioHandlerRef.current?.startStreamingPlayback();
+  //             for await (const audio of content.audioChunks()) {
+  //               audioHandlerRef.current?.playChunk(audio);
+  //             }
+  //           };
+  //           await Promise.all([textTask(), audioTask()]);
+  //         }
+  //       }
+  //     }
+  //   }
+  // };
 
-  const handleInputAudio = async (item: RTInputAudioItem) => {
-    audioHandlerRef.current?.stopStreamingPlayback();
-    await item.waitForCompletion();
-    setMessages((prevMessages) => [
-      ...prevMessages,
-      {
-        type: "user",
-        content: item.transcription || "",
-      },
-    ]);
-  };
+  // const handleInputAudio = async (item: RTInputAudioItem) => {
+  //   audioHandlerRef.current?.stopStreamingPlayback();
+  //   await item.waitForCompletion();
+  //   setMessages((prevMessages) => [
+  //     ...prevMessages,
+  //     {
+  //       type: "user",
+  //       content: item.transcription || "",
+  //     },
+  //   ]);
+  // };
 
-  const startResponseListener = async () => {
-    if (!clientRef.current) return;
+  // const startResponseListener = async () => {
+  //   if (!clientRef.current) return;
 
-    try {
-      for await (const serverEvent of clientRef.current.events()) {
-        if (serverEvent.type === "response") {
-          await handleResponse(serverEvent);
-        } else if (serverEvent.type === "input_audio") {
-          await handleInputAudio(serverEvent);
-        }
-      }
-    } catch (error) {
-      if (clientRef.current) {
-        console.error("Response iteration error:", error);
-      }
-    }
-  };
+  //   try {
+  //     for await (const serverEvent of realtimeStreaming.current.events()) {
+  //       if (serverEvent.type === "response") {
+  //         await handleResponse(serverEvent);
+  //       } else if (serverEvent.type === "input_audio") {
+  //         await handleInputAudio(serverEvent);
+  //       }
+  //     }
+  //   } catch (error) {
+  //     if (clientRef.current) {
+  //       console.error("Response iteration error:", error);
+  //     }
+  //   }
+  // };
 
   const sendMessage = async () => {
-    if (currentMessage.trim() && clientRef.current) {
+    if (currentMessage.trim() && realtimeStreaming.current) {
       try {
         setMessages((prevMessages) => [
           ...prevMessages,
@@ -204,12 +340,18 @@ const ChatInterface = () => {
           },
         ]);
 
-        await clientRef.current.sendItem({
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: currentMessage }],
+        await realtimeStreaming.current.send({
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: currentMessage }]
+          },
         });
-        await clientRef.current.generateResponse();
+        
+        await realtimeStreaming.current.send({
+          type: "response.create"
+        });
         setCurrentMessage("");
       } catch (error) {
         console.error("Failed to send message:", error);
@@ -218,26 +360,33 @@ const ChatInterface = () => {
   };
 
   const toggleRecording = async () => {
-    if (!isRecording && clientRef.current) {
+    if (!isRecording && realtimeStreaming.current) {
       try {
+        console.log("Starting recording...");
         if (!audioHandlerRef.current) {
           audioHandlerRef.current = new AudioHandler();
           await audioHandlerRef.current.initialize();
         }
         await audioHandlerRef.current.startRecording(async (chunk) => {
-          await clientRef.current?.sendAudio(chunk);
+          // await realtimeStreaming.current?.sendAudio(chunk);
+          const regularArray = String.fromCharCode(...chunk);
+          const base64 = btoa(regularArray);
+          await realtimeStreaming.current?.send({
+            type: "input_audio_buffer.append",
+            audio: base64,
+          });
         });
         setIsRecording(true);
       } catch (error) {
         console.error("Failed to start recording:", error);
       }
     } else if (audioHandlerRef.current) {
+      console.log("Stopping recording...");
       try {
         audioHandlerRef.current.stopRecording();
         if (!useVAD) {
-          const inputAudio = await clientRef.current?.commitAudio();
-          await handleInputAudio(inputAudio!);
-          await clientRef.current?.generateResponse();
+          // const inputAudio = await realtimeStreaming.current?.send();
+          // await handleInputAudio(inputAudio!);
         }
         setIsRecording(false);
       } catch (error) {
@@ -326,6 +475,7 @@ const ChatInterface = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Instructions</label>
                   <textarea
+                    placeholder="Instructions for the assistant"
                     className="w-full min-h-[100px] p-2 border rounded"
                     value={instructions}
                     onChange={(e) => setInstructions(e.target.value)}
@@ -435,11 +585,10 @@ const ChatInterface = () => {
           {messages.map((message, index) => (
             <div
               key={index}
-              className={`mb-4 p-3 rounded-lg ${
-                message.type === "user"
-                  ? "bg-blue-100 ml-auto max-w-[80%]"
-                  : "bg-gray-100 mr-auto max-w-[80%]"
-              }`}
+              className={`mb-4 p-3 rounded-lg ${message.type === "user"
+                ? "bg-blue-100 ml-auto max-w-[80%]"
+                : "bg-gray-100 mr-auto max-w-[80%]"
+                }`}
             >
               {message.content}
             </div>
