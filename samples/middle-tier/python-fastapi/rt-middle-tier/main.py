@@ -76,12 +76,14 @@ class RTSession:
         self.logger.debug(f"Initializing RT client with backend: {backend}")
 
         if backend == "azure" or backend is None:
+
             self.logger.info(
                 "Using Azure OpenAI backend at %s with deployment %s",
                 os.getenv("AZURE_OPENAI_ENDPOINT"),
                 os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             )
             self.credential = DefaultAzureCredential()
+
             return RTClient(
                 url=os.getenv("AZURE_OPENAI_ENDPOINT"),
                 token_credential=self.credential,

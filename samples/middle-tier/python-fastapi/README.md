@@ -51,7 +51,7 @@ Authentication is handled via `DefaultAzureCredential` from `azure.identity.aio`
     ```
 
     This installs `azure-identity`, which contains the async `DefaultAzureCredential` used by the sample. If you run the code outside Poetry, ensure the package is installed with `pip install azure-identity`.
-    The server opens this credential as an async context manager.
+
 
 3. **Start the Server**
 
@@ -116,6 +116,8 @@ class ControlMessage(TypedDict):
 ## Notes
 
 - Ensure that the required environment variables are set correctly for your chosen backend.
+
 - For Azure backend, authentication relies on the async `DefaultAzureCredential` from `azure.identity.aio`, used as an async context manager. Configure your environment for token-based authentication.
+
 - Logging is configured using Loguru and can be adjusted through its configuration.
 - The server implements CORS middleware with permissive settings for development. Adjust these settings for production use.
