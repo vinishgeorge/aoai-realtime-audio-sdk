@@ -44,14 +44,41 @@ body {
     --radius: 0.5rem;
   }
   .dark {
-    /* Use a deep navy instead of pure black */
+    /* Pure black theme */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 0%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 20%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 100%;
+    --input: 0 0% 100%;
+    --ring: 0 0% 83.1%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+
+  .dark-blue {
+    /* Use a deep navy theme */
     --background: 238 40% 13%;
     --foreground: 0 0% 98%;
     --card: 238 40% 13%;
     --card-foreground: 0 0% 98%;
     --popover: 238 40% 13%;
     --popover-foreground: 0 0% 98%;
-    /* Brand orange for primary backgrounds */
     --primary: 25 86% 56%;
     --primary-foreground: 0 0% 9%;
     --secondary: 0 0% 14.9%;
@@ -62,7 +89,6 @@ body {
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    /* White borders for higher contrast */
     --border: 0 0% 100%;
     --input: 0 0% 100%;
     --ring: 0 0% 83.1%;
