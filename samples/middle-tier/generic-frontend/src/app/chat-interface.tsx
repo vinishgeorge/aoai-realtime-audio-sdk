@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Mic, MicOff, Power, Upload } from "lucide-react";
+import { Send, Mic, MicOff, Power, Upload, Menu } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import * as RadioGroup from "@radix-ui/react-radio-group";
@@ -87,6 +87,7 @@ const ChatInterface = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [validEndpoint, setValidEndpoint] = useState(true);
   const [selectedModel, setSelectedModel] = useState("azure");
+  const [isMenuOpen, setIsMenuOpen] = useState(true);
 
   const webSocketClient = useRef<WebSocketClient | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -323,14 +324,15 @@ const ChatInterface = () => {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <div className="w-80 bg-background p-4 flex flex-col border-r border-border">
-        <div className="flex-1 overflow-y-auto">
-          <Accordion type="single" className="space-y-4" value="connection">
-            <AccordionItem value="connection">
-              <AccordionTrigger className="text-lg font-semibold">
-                <span  className="font-montserrat blue">MEGANEXUS</span>
-              </AccordionTrigger>
-              <AccordionContent className="space-y-4">
+      {isMenuOpen && (
+        <div className="w-80 bg-background p-4 flex flex-col border-r border-border">
+          <div className="flex-1 overflow-y-auto">
+            <Accordion type="single" className="space-y-4" value="connection">
+              <AccordionItem value="connection">
+                <AccordionTrigger className="text-lg font-semibold">
+                <span className="font-montserrat orange">MEGANEXUS</span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4">
                 <Input
                   placeholder="Endpoint"
                   value={endpoint}
@@ -385,10 +387,22 @@ const ChatInterface = () => {
             {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
           </Button>
           <ThemeSelector />
+
         </div>
-      </div>
+      </div>)}
 
       <div className="flex-1 flex flex-col">
+        <div className="p-4 border-b flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <span className="font-montserrat orange text-xl">MEGANEXUS</span>
+        </div>
         <div className="flex-1 p-4 overflow-y-auto">
           <div className="space-y-4">
             {messages.map((message) => (

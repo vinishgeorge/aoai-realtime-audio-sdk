@@ -4,12 +4,17 @@ import { useEffect, useState } from "react";
 import {
   Select,
   SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 
 type Theme = "light" | "dark" | "dark-blue";
+
+const themes: Record<Theme, { label: string; color: string }> = {
+  light: { label: "Light", color: "#000000" },
+  dark: { label: "Black", color: "#000000" },
+  "dark-blue": { label: "Dark Blue", color: "#f08030" },
+};
 
 function applyTheme(theme: Theme) {
   document.documentElement.classList.remove("dark", "dark-blue");
@@ -40,13 +45,27 @@ export default function ThemeSelector() {
 
   return (
     <Select value={theme} onValueChange={handleChange}>
-      <SelectTrigger className="w-[120px]">
-        <SelectValue />
+      <SelectTrigger className="w-[140px]">
+        <span className="flex items-center gap-2">
+          <span
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: themes[theme].color }}
+          />
+          {themes[theme].label}
+        </span>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="light">Light</SelectItem>
-        <SelectItem value="dark">Black</SelectItem>
-        <SelectItem value="dark-blue">Dark Blue</SelectItem>
+        {(Object.keys(themes) as Theme[]).map((t) => (
+          <SelectItem key={t} value={t}>
+            <span className="flex items-center gap-2">
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: themes[t].color }}
+              />
+              {themes[t].label}
+            </span>
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );
