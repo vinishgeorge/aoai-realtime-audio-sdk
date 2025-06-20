@@ -24,12 +24,41 @@ from rtclient import (
 from sentence_transformers import SentenceTransformer, util
 import io
 from pypdf import PdfReader
+import docx2txt
+import pandas as pd
+from bs4 import BeautifulSoup
+import markdown
+import tempfile
+import subprocess
+import weaviate
+from weaviate.connect import ConnectionParams, ProtocolParams
+from weaviate.classes.data import DataObject
+from urllib.parse import urlparse
 
 load_dotenv()
 
 document_chunks = []
 document_embeddings = []
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
+WEAVIATE_GRPC_PORT = int(os.getenv("WEAVIATE_GRPC_PORT", "50051"))
+weaviate_client = None
+
+def get_weaviate_client():
+    global weaviate_client
+    if weaviate_client is None:
+        url = urlparse(WEAVIATE_URL)
+        params = ConnectionParams(
+            http=ProtocolParams(host=url.hostname or "localhost", port=url.port or 80, secure=url.scheme == "https"),
+            grpc=ProtocolParams(host=url.hostname or "localhost", port=WEAVIATE_GRPC_PORT, secure=url.scheme == "https"),
+        )
+        weaviate_client = weaviate.WeaviateClient(connection_params=params, skip_init_checks=True)
+        try:
+            weaviate_client.connect()
+        except Exception as e:
+            logger.warning(f"Could not connect to Weaviate: {e}")
+    return weaviate_client
 
 class TextDelta(TypedDict):
     id: str
@@ -264,13 +293,23 @@ async def phi3_endpoint(req: Phi3Request):
     llm = Ollama(base_url=base_url, model=model)
 
     final_prompt = req.prompt
+    context = ""
 
-    if len(document_chunks) > 0 and len(document_embeddings) > 0:
-        # Perform similarity search
+    client = get_weaviate_client()
+    if client is not None and client.collections.exists("DocumentChunk"):
+        collection = client.collections.get("DocumentChunk")
+        query_embedding = embedder.encode(req.prompt)
+        try:
+            results = collection.query.near_vector(query_embedding.tolist(), limit=3)
+            context = "\n---\n".join(obj.properties["text"] for obj in results.objects)
+        except Exception as e:
+            logger.warning(f"Weaviate query failed: {e}")
+    elif len(document_chunks) > 0 and len(document_embeddings) > 0:
         query_embedding = embedder.encode(req.prompt, convert_to_tensor=True)
         top_results = util.semantic_search(query_embedding, document_embeddings, top_k=3)
         context = "\n---\n".join(document_chunks[match['corpus_id']] for match in top_results[0])
 
+    if context:
         final_prompt = f"""Use the following document excerpts to answer the question.
 
 {context}
@@ -313,15 +352,53 @@ async def upload_file(file: UploadFile = File(...)):
     global document_chunks, document_embeddings
 
     contents = await file.read()
-    if file.filename.endswith(".pdf"):
+    ext = os.path.splitext(file.filename)[1].lower()
+
+    if ext == ".pdf":
         reader = PdfReader(io.BytesIO(contents))
         text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+    elif ext in {".txt"}:
+        text = contents.decode("utf-8", errors="ignore")
+    elif ext in {".md"}:
+        md_text = contents.decode("utf-8", errors="ignore")
+        html = markdown.markdown(md_text)
+        text = BeautifulSoup(html, "html.parser").get_text()
+    elif ext in {".docx"}:
+        text = docx2txt.process(io.BytesIO(contents))
+    elif ext in {".doc"}:
+        with tempfile.NamedTemporaryFile(suffix=".doc") as tmp:
+            tmp.write(contents)
+            tmp.flush()
+            result = subprocess.run(["antiword", tmp.name], capture_output=True, text=True)
+            text = result.stdout
+    elif ext in {".xls", ".xlsx"}:
+        df = pd.read_excel(io.BytesIO(contents), header=None, dtype=str)
+        text = "\n".join(" ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows())
     else:
-        return {"error": "Unsupported file format. Only PDF is supported."}
+        return {"error": "Unsupported file format."}
 
     # Chunk and embed
     document_chunks = [text[i:i+500] for i in range(0, len(text), 500)]
-    document_embeddings = embedder.encode(document_chunks, convert_to_tensor=True)
+    embeddings = embedder.encode(document_chunks)
+    document_embeddings = embeddings
+
+    client = get_weaviate_client()
+    if client is not None:
+        try:
+            if not client.collections.exists("DocumentChunk"):
+                client.collections.create(
+                    "DocumentChunk",
+                    vectorizer="none",
+                    properties=[{"name": "text", "dataType": "text"}],
+                )
+            collection = client.collections.get("DocumentChunk")
+            objects = [
+                DataObject(properties={"text": chunk}, vector=vector.tolist())
+                for chunk, vector in zip(document_chunks, embeddings)
+            ]
+            collection.data.insert_many(objects)
+        except Exception as e:
+            logger.warning(f"Failed to store in Weaviate: {e}")
 
     return {"status": "Document uploaded and processed", "chunks": len(document_chunks)}
 
