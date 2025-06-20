@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/accordion";
 import { Player, Recorder } from "@/lib/audio";
 import { WebSocketClient } from "@/lib/client";
-import ThemeToggle from "@/components/theme-toggle";
+import ThemeSelector from "@/components/theme-selector";
 
 interface Message {
   id: string;
@@ -384,7 +384,7 @@ const ChatInterface = () => {
             <Power className="w-4 h-4 mr-2" />
             {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
           </Button>
-          <ThemeToggle />
+          <ThemeSelector />
         </div>
       </div>
 

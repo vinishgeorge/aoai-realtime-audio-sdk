@@ -27,11 +27,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/icon.svg" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(() => { try { const t = localStorage.getItem('theme'); const d = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches; if (d) document.documentElement.classList.add('dark'); } catch(e) {} })();`,
-          }}
-        />
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(() => { try { const t = localStorage.getItem('theme'); const prefers = window.matchMedia('(prefers-color-scheme: dark)').matches; const theme = t || (prefers ? 'dark' : 'light'); if (theme && theme !== 'light') document.documentElement.classList.add(theme); } catch(e) {} })();`,
+            }}
+          />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
