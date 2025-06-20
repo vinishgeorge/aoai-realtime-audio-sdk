@@ -11,7 +11,7 @@ from loguru import logger
 import os
 from dotenv import load_dotenv
 from azure.identity.aio import DefaultAzureCredential
-from langchain_community.llms import Ollama
+from langchain_community.llms.ollama import Ollama
 from azure.core.credentials import AzureKeyCredential
 from rtclient import (
     InputAudioTranscription,
@@ -21,9 +21,15 @@ from rtclient import (
     RTResponse,
     RTAudioContent,
 )
+from sentence_transformers import SentenceTransformer, util
+import io
+from pypdf import PdfReader
 
 load_dotenv()
 
+document_chunks = []
+document_embeddings = []
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
 class TextDelta(TypedDict):
     id: str
@@ -251,11 +257,32 @@ app.add_middleware(
 
 @app.post("/phi3")
 async def phi3_endpoint(req: Phi3Request):
+    global document_chunks, document_embeddings
+
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    model = os.getenv("PHI3_MODEL", "phi3")
+    model = os.getenv("PHI3_MODEL", "phi3.5:3.8b")
     llm = Ollama(base_url=base_url, model=model)
-    response = await llm.apredict(req.prompt)
+
+    final_prompt = req.prompt
+
+    if len(document_chunks) > 0 and len(document_embeddings) > 0:
+        # Perform similarity search
+        query_embedding = embedder.encode(req.prompt, convert_to_tensor=True)
+        top_results = util.semantic_search(query_embedding, document_embeddings, top_k=3)
+        context = "\n---\n".join(document_chunks[match['corpus_id']] for match in top_results[0])
+
+        final_prompt = f"""Use the following document excerpts to answer the question.
+
+{context}
+
+Question: {req.prompt}
+Answer:"""
+
+    response = await llm.apredict(final_prompt)
     return {"response": response}
+
+
+
 
 
 @app.websocket("/realtime")
@@ -279,6 +306,24 @@ async def websocket_endpoint(websocket: WebSocket):
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close()
             logger.info("WebSocket connection closed")
+from fastapi import UploadFile, File
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    global document_chunks, document_embeddings
+
+    contents = await file.read()
+    if file.filename.endswith(".pdf"):
+        reader = PdfReader(io.BytesIO(contents))
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+    else:
+        return {"error": "Unsupported file format. Only PDF is supported."}
+
+    # Chunk and embed
+    document_chunks = [text[i:i+500] for i in range(0, len(text), 500)]
+    document_embeddings = embedder.encode(document_chunks, convert_to_tensor=True)
+
+    return {"status": "Document uploaded and processed", "chunks": len(document_chunks)}
 
 
 if __name__ == "__main__":
