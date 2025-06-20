@@ -1,11 +1,11 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, UploadFile, File
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
 import uvicorn
 import uuid
 import json
-from typing import Union, Literal, TypedDict
+from typing import Union, Literal, TypedDict, Dict, List, Tuple
 import asyncio
 from loguru import logger
 import os
@@ -41,24 +41,40 @@ document_chunks = []
 document_embeddings = []
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
+# Simple in-memory storage for conversation history.
+# Maps a session id to a list of (question, answer) tuples.
+mem0: Dict[str, List[Tuple[str, str]]] = {}
+
 WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
 WEAVIATE_GRPC_PORT = int(os.getenv("WEAVIATE_GRPC_PORT", "50051"))
 weaviate_client = None
+
 
 def get_weaviate_client():
     global weaviate_client
     if weaviate_client is None:
         url = urlparse(WEAVIATE_URL)
         params = ConnectionParams(
-            http=ProtocolParams(host=url.hostname or "localhost", port=url.port or 80, secure=url.scheme == "https"),
-            grpc=ProtocolParams(host=url.hostname or "localhost", port=WEAVIATE_GRPC_PORT, secure=url.scheme == "https"),
+            http=ProtocolParams(
+                host=url.hostname or "localhost",
+                port=url.port or 80,
+                secure=url.scheme == "https",
+            ),
+            grpc=ProtocolParams(
+                host=url.hostname or "localhost",
+                port=WEAVIATE_GRPC_PORT,
+                secure=url.scheme == "https",
+            ),
         )
-        weaviate_client = weaviate.WeaviateClient(connection_params=params, skip_init_checks=True)
+        weaviate_client = weaviate.WeaviateClient(
+            connection_params=params, skip_init_checks=True
+        )
         try:
             weaviate_client.connect()
         except Exception as e:
             logger.warning(f"Could not connect to Weaviate: {e}")
     return weaviate_client
+
 
 class TextDelta(TypedDict):
     id: str
@@ -87,6 +103,7 @@ class ControlMessage(TypedDict):
 
 class Phi3Request(BaseModel):
     prompt: str
+    session_id: str | None = None
 
 
 WSMessage = Union[TextDelta, Transcription, UserMessage, ControlMessage]
@@ -117,7 +134,6 @@ class RTSession:
         self.logger.debug(f"Initializing RT client with backend: {backend}")
 
         if backend == "azure" or backend is None:
-
             self.logger.info(
                 "Using Azure OpenAI backend at %s with deployment %s",
                 os.getenv("AZURE_OPENAI_ENDPOINT"),
@@ -286,11 +302,14 @@ app.add_middleware(
 
 @app.post("/phi3")
 async def phi3_endpoint(req: Phi3Request):
-    global document_chunks, document_embeddings
+    global document_chunks, document_embeddings, mem0
 
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.getenv("PHI3_MODEL", "phi3.5:3.8b")
     llm = Ollama(base_url=base_url, model=model)
+
+    session_id = req.session_id or "default"
+    history = mem0.get(session_id, [])
 
     final_prompt = req.prompt
     context = ""
@@ -306,22 +325,39 @@ async def phi3_endpoint(req: Phi3Request):
             logger.warning(f"Weaviate query failed: {e}")
     elif len(document_chunks) > 0 and len(document_embeddings) > 0:
         query_embedding = embedder.encode(req.prompt, convert_to_tensor=True)
-        top_results = util.semantic_search(query_embedding, document_embeddings, top_k=3)
-        context = "\n---\n".join(document_chunks[match['corpus_id']] for match in top_results[0])
+        top_results = util.semantic_search(
+            query_embedding, document_embeddings, top_k=3
+        )
+        context = "\n---\n".join(
+            document_chunks[match["corpus_id"]] for match in top_results[0]
+        )
+
+    conversation = ""
+    if history:
+        conversation = "\n".join(f"User: {q}\nAssistant: {a}" for q, a in history)
 
     if context:
-        final_prompt = f"""Use the following document excerpts to answer the question.
-
-{context}
-
-Question: {req.prompt}
-Answer:"""
+        final_prompt = (
+            "Use the following document excerpts to answer the question.\n\n"
+            f"{context}\n\n"
+        )
+        if conversation:
+            final_prompt += f"{conversation}\nUser: {req.prompt}\nAssistant:"
+        else:
+            final_prompt += f"Question: {req.prompt}\nAnswer:"
+    else:
+        if conversation:
+            final_prompt = f"{conversation}\nUser: {req.prompt}\nAssistant:"
+        else:
+            final_prompt = req.prompt
 
     response = await llm.apredict(final_prompt)
+
+    # Store the exchange for future context, keeping only the latest 10 turns
+    history.append((req.prompt, response))
+    mem0[session_id] = history[-10:]
+
     return {"response": response}
-
-
-
 
 
 @app.websocket("/realtime")
@@ -345,7 +381,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close()
             logger.info("WebSocket connection closed")
-from fastapi import UploadFile, File
+
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -356,7 +392,9 @@ async def upload_file(file: UploadFile = File(...)):
 
     if ext == ".pdf":
         reader = PdfReader(io.BytesIO(contents))
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        text = "\n".join(
+            page.extract_text() for page in reader.pages if page.extract_text()
+        )
     elif ext in {".txt"}:
         text = contents.decode("utf-8", errors="ignore")
     elif ext in {".md"}:
@@ -369,16 +407,20 @@ async def upload_file(file: UploadFile = File(...)):
         with tempfile.NamedTemporaryFile(suffix=".doc") as tmp:
             tmp.write(contents)
             tmp.flush()
-            result = subprocess.run(["antiword", tmp.name], capture_output=True, text=True)
+            result = subprocess.run(
+                ["antiword", tmp.name], capture_output=True, text=True
+            )
             text = result.stdout
     elif ext in {".xls", ".xlsx"}:
         df = pd.read_excel(io.BytesIO(contents), header=None, dtype=str)
-        text = "\n".join(" ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows())
+        text = "\n".join(
+            " ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows()
+        )
     else:
         return {"error": "Unsupported file format."}
 
     # Chunk and embed
-    document_chunks = [text[i:i+500] for i in range(0, len(text), 500)]
+    document_chunks = [text[i : i + 500] for i in range(0, len(text), 500)]
     embeddings = embedder.encode(document_chunks)
     document_embeddings = embeddings
 
