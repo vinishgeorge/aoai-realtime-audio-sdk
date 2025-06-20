@@ -392,7 +392,7 @@ const ChatInterface = () => {
             <input
               id="file-upload" 
               type="file"
-              accept=".pdf,.doc,.docx,.txt"
+              accept=".pdf,.doc,.docx,.txt,.md"
               onChange={handleFileChange}
               className="hidden"
               disabled={!isConnected || selectedModel !== "phi3"}

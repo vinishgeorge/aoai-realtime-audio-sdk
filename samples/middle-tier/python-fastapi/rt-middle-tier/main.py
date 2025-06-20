@@ -1,11 +1,11 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, UploadFile, File
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
 import uvicorn
 import uuid
 import json
-from typing import Union, Literal, TypedDict
+from typing import Union, Literal, TypedDict, Dict, List, Tuple
 import asyncio
 from loguru import logger
 import os
@@ -43,6 +43,10 @@ load_dotenv()
 document_chunks = []
 document_embeddings = []
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Simple in-memory storage for conversation history.
+# Maps a session id to a list of (question, answer) tuples.
+mem0: Dict[str, List[Tuple[str, str]]] = {}
 
 WEAVIATE_GRPC_PORT = int(os.getenv("WEAVIATE_GRPC_PORT", "50051"))
 weaviate_client = None
@@ -109,6 +113,7 @@ class ControlMessage(TypedDict):
 
 class Phi3Request(BaseModel):
     prompt: str
+    session_id: str | None = None
 
 
 WSMessage = Union[TextDelta, Transcription, UserMessage, ControlMessage]
@@ -139,7 +144,6 @@ class RTSession:
         self.logger.debug(f"Initializing RT client with backend: {backend}")
 
         if backend == "azure" or backend is None:
-
             self.logger.info(
                 "Using Azure OpenAI backend at %s with deployment %s",
                 os.getenv("AZURE_OPENAI_ENDPOINT"),
@@ -308,11 +312,14 @@ app.add_middleware(
 
 @app.post("/phi3")
 async def phi3_endpoint(req: Phi3Request):
-    global document_chunks, document_embeddings
+    global document_chunks, document_embeddings, mem0
 
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     model = os.getenv("PHI3_MODEL", "phi3.5:3.8b")
     llm = Ollama(base_url=base_url, model=model)
+
+    session_id = req.session_id or "default"
+    history = mem0.get(session_id, [])
 
     final_prompt = req.prompt
     context = ""
@@ -337,15 +344,31 @@ async def phi3_endpoint(req: Phi3Request):
             document_chunks[match["corpus_id"]] for match in top_results[0]
         )
 
+    conversation = ""
+    if history:
+        conversation = "\n".join(f"User: {q}\nAssistant: {a}" for q, a in history)
+
     if context:
-        final_prompt = f"""Use the following document excerpts to answer the question.
-
-{context}
-
-Question: {req.prompt}
-Answer:"""
+        final_prompt = (
+            "Use the following document excerpts to answer the question.\n\n"
+            f"{context}\n\n"
+        )
+        if conversation:
+            final_prompt += f"{conversation}\nUser: {req.prompt}\nAssistant:"
+        else:
+            final_prompt += f"Question: {req.prompt}\nAnswer:"
+    else:
+        if conversation:
+            final_prompt = f"{conversation}\nUser: {req.prompt}\nAssistant:"
+        else:
+            final_prompt = req.prompt
     logger.info(f"Final prompt for LLM: {final_prompt}")
     response = await llm.apredict(final_prompt)
+
+    # Store the exchange for future context, keeping only the latest 10 turns
+    history.append((req.prompt, response))
+    mem0[session_id] = history[-10:]
+
     return {"response": response}
 
 
