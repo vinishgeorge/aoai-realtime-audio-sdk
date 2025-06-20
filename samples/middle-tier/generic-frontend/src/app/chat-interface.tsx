@@ -1,19 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Mic, MicOff, Power, Upload } from "lucide-react";
+import { Send, Mic, MicOff, Power, Upload, Menu, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import * as RadioGroup from "@radix-ui/react-radio-group";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import SettingsDialog from "@/components/settings-dialog";
 import { Player, Recorder } from "@/lib/audio";
 import { WebSocketClient } from "@/lib/client";
-import ThemeToggle from "@/components/theme-toggle";
+import ThemeSelector from "@/components/theme-selector";
 
 interface Message {
   id: string;
@@ -86,7 +80,9 @@ const ChatInterface = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [validEndpoint, setValidEndpoint] = useState(true);
-  const [selectedModel, setSelectedModel] = useState("azure");
+  const [selectedModel, setSelectedModel] = useState("phi3");
+  const [isMenuOpen, setIsMenuOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const webSocketClient = useRef<WebSocketClient | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -323,72 +319,43 @@ const ChatInterface = () => {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <div className="w-80 bg-background p-4 flex flex-col border-r border-border">
-        <div className="flex-1 overflow-y-auto">
-          <Accordion type="single" className="space-y-4" value="connection">
-            <AccordionItem value="connection">
-              <AccordionTrigger className="text-lg font-semibold">
-                <span  className="font-montserrat blue">MEGANEXUS</span>
-              </AccordionTrigger>
-              <AccordionContent className="space-y-4">
-                <Input
-                  placeholder="Endpoint"
-                  value={endpoint}
-                  onChange={(e) => validateEndpoint(e.target.value)}
-                  disabled={isConnected}
-                />
-                <RadioGroup.Root
-                  className="space-y-2"
-                  value={selectedModel}
-                  onValueChange={(val) => setSelectedModel(val)}
-                >
-                  <div className="flex items-center gap-2">
-                    <RadioGroup.Item
-                      className="bg-white w-5 h-5 rounded-full border border-gray-400 data-[state=checked]:bg-blue-600"
-                      value="azure"
-                      id="azure"
-                    >
-                      <RadioGroup.Indicator className="flex items-center justify-center w-full h-full">
-                        <div className="w-2 h-2 bg-white rounded-full" />
-                      </RadioGroup.Indicator>
-                    </RadioGroup.Item>
-                    <label htmlFor="azure" className="text-sm">
-                      Azure OpenAI
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <RadioGroup.Item
-                      className="bg-white w-5 h-5 rounded-full border border-gray-400 data-[state=checked]:bg-green-600"
-                      value="phi3"
-                      id="phi3"
-                    >
-                      <RadioGroup.Indicator className="flex items-center justify-center w-full h-full">
-                        <div className="w-2 h-2 bg-white rounded-full" />
-                      </RadioGroup.Indicator>
-                    </RadioGroup.Item>
-                    <label htmlFor="phi3" className="text-sm">
-                      Phi-3
-                    </label>
-                  </div>
-                </RadioGroup.Root>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+      {isMenuOpen && (
+        <div className="w-80 bg-background p-4 flex flex-col border-r border-border">
+          <div className="flex-1 overflow-y-auto space-y-2">
+            <Button
+              variant="ghost"
+              className="w-full justify-start"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings className="w-4 h-4 mr-2" /> Settings
+            </Button>
+          </div>
+          <div className="mt-4 flex items-center gap-2">
+            <Button
+              variant={isConnected ? "destructive" : "default"}
+              onClick={handleConnect}
+              disabled={isConnecting || !validEndpoint}
+            >
+              <Power className="w-4 h-4 mr-2" />
+              {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
+            </Button>
+            <ThemeSelector iconOnly />
+          </div>
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <Button
-            variant={isConnected ? "destructive" : "default"}
-            onClick={handleConnect}
-            disabled={isConnecting || !validEndpoint}
-          >
-            <Power className="w-4 h-4 mr-2" />
-            {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
-          </Button>
-          <ThemeToggle />
-        </div>
-      </div>
+      )}
 
       <div className="flex-1 flex flex-col">
+        <div className="p-4 border-b flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <span className="font-montserrat orange text-xl">MEGANEXUS</span>
+        </div>
         <div className="flex-1 p-4 overflow-y-auto">
           <div className="space-y-4">
             {messages.map((message) => (
@@ -446,6 +413,15 @@ const ChatInterface = () => {
           </div>
         </div>
       </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        endpoint={endpoint}
+        onEndpointChange={validateEndpoint}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+        isConnected={isConnected}
+      />
     </div>
   );
 };
