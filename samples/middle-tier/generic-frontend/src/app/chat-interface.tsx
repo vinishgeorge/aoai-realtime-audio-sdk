@@ -189,24 +189,11 @@ const ChatInterface = () => {
 
   const handleConnect = async () => {
     if (selectedModel === "phi3") {
-      // Send prompt to /phi3 endpoint
-      // try {
-      //   const response = await fetch("http://localhost:8080/phi3", {
-      //     method: "POST",
-      //     headers: { "Content-Type": "application/json" },
-      //     body: JSON.stringify({ prompt: currentMessage }),
-      //   });
-      //   const data = await response.json();
-      //   const newMessage: Message = {
-      //     id: `assistant-${Date.now()}`,
-      //     type: "assistant",
-      //     content: data.response || "Response received.",
-      //   };
-      //   setMessages((prev) => [...prev, newMessage]);
-      // } catch (error) {
-      //   console.error("Error calling Phi-3 API:", error);
-      // }
-      setIsConnected(true);
+      if (isConnected) {
+        await disconnect();
+      } else {
+        setIsConnected(true);
+      }
       return; // Skip WebSocket connection if Phi-3
     }
 
