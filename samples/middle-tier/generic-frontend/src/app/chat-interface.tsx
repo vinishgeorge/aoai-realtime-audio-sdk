@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/accordion";
 import { Player, Recorder } from "@/lib/audio";
 import { WebSocketClient } from "@/lib/client";
+import ThemeToggle from "@/components/theme-toggle";
 
 interface Message {
   id: string;
@@ -249,8 +250,8 @@ const ChatInterface = () => {
   };
 
   return (
-    <div className="flex h-screen">
-      <div className="w-80 bg-gray-50 p-4 flex flex-col border-r">
+    <div className="flex h-screen bg-background text-foreground">
+      <div className="w-80 bg-background p-4 flex flex-col border-r border-border">
         <div className="flex-1 overflow-y-auto">
           <Accordion type="single" className="space-y-4" value="connection">
             <AccordionItem value="connection">
@@ -268,15 +269,17 @@ const ChatInterface = () => {
             </AccordionItem>
           </Accordion>
         </div>
-        <Button
-          className="mt-4"
-          variant={isConnected ? "destructive" : "default"}
-          onClick={handleConnect}
-          disabled={isConnecting || !validEndpoint}
-        >
-          <Power className="w-4 h-4 mr-2" />
-          {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
-        </Button>
+        <div className="mt-4 flex items-center gap-2">
+          <Button
+            variant={isConnected ? "destructive" : "default"}
+            onClick={handleConnect}
+            disabled={isConnecting || !validEndpoint}
+          >
+            <Power className="w-4 h-4 mr-2" />
+            {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
+          </Button>
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col">
@@ -287,10 +290,10 @@ const ChatInterface = () => {
                 key={message.id}
                 className={`p-3 rounded-lg ${
                   message.type === "user"
-                    ? "bg-blue-100 ml-auto max-w-[80%]"
+                    ? "bg-primary text-primary-foreground ml-auto max-w-[80%]"
                     : message.type === "status"
-                    ? "bg-gray-50 mx-auto max-w-[80%] text-center"
-                    : "bg-gray-100 mr-auto max-w-[80%]"
+                    ? "bg-muted text-muted-foreground mx-auto max-w-[80%] text-center"
+                    : "bg-secondary text-secondary-foreground mr-auto max-w-[80%]"
                 }`}
               >
                 {message.content}
@@ -312,7 +315,7 @@ const ChatInterface = () => {
             <Button
               variant="outline"
               onClick={toggleRecording}
-              className={isRecording ? "bg-red-100" : ""}
+              className={isRecording ? "bg-destructive text-destructive-foreground" : ""}
               disabled={!isConnected}
             >
               {isRecording ? (
