@@ -50,7 +50,7 @@ export default function ThemeSelector({ iconOnly = false }: Props) {
 
   return (
     <Select value={theme} onValueChange={handleChange}>
-      <SelectTrigger className={iconOnly ? "w-10" : "w-[150px]"}>
+     <SelectTrigger className={iconOnly ? "w-15 h-15" : "w-[150px]"}>
         <span className="flex items-center gap-2">
           <Palette data-lucide="palette" className="w-4 h-4" />
           <span
