@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Palette } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -23,7 +24,11 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export default function ThemeSelector() {
+interface Props {
+  iconOnly?: boolean;
+}
+
+export default function ThemeSelector({ iconOnly = false }: Props) {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
@@ -45,13 +50,14 @@ export default function ThemeSelector() {
 
   return (
     <Select value={theme} onValueChange={handleChange}>
-      <SelectTrigger className="w-[140px]">
+     <SelectTrigger className={iconOnly ? "w-15 h-15" : "w-[150px]"}>
         <span className="flex items-center gap-2">
+          <Palette data-lucide="palette" className="w-4 h-4" />
           <span
             className="w-3 h-3 rounded-full"
             style={{ backgroundColor: themes[theme].color }}
           />
-          {themes[theme].label}
+          {iconOnly ? null : themes[theme].label}
         </span>
       </SelectTrigger>
       <SelectContent>
