@@ -18,9 +18,9 @@ from pypdf import PdfReader
 import docx2txt
 from dotenv import load_dotenv
 
-from document_store import DocumentStore
-from llm import ModelFactory
-from rt_session import RTSession
+from .document_store import DocumentStore
+from .llm import ModelFactory
+from .rt_session import RTSession
 
 
 load_dotenv()
