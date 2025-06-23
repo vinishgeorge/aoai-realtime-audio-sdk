@@ -96,7 +96,7 @@ class DocumentStore:
             except Exception as exc:
                 logger.warning(f"Weaviate query failed: {exc}")
 
-        if self.chunks and self.embeddings:
+        if self.chunks and len(self.embeddings) > 0:
             query_embedding = embedder.encode(query, convert_to_tensor=True)
             top_results = util.semantic_search(query_embedding, self.embeddings, top_k=3)
             return "\n---\n".join(
