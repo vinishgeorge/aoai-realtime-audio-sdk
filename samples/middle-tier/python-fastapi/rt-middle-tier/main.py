@@ -31,18 +31,96 @@ import markdown
 import tempfile
 import subprocess
 import weaviate
-from weaviate.connect import ConnectionParams, ProtocolParams
 from weaviate.classes.data import DataObject
-from urllib.parse import urlparse
 from weaviate.classes.init import Auth
 from weaviate.classes.config import Configure, Property, DataType
+from abc import ABC, abstractmethod
+
 
 
 load_dotenv()
 
-document_chunks = []
-document_embeddings = []
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+class BaseLLMModel(ABC):
+    """Abstract base class for language models."""
+
+    @abstractmethod
+    async def generate(self, prompt: str) -> str:
+        pass
+
+
+class OllamaModel(BaseLLMModel):
+    def __init__(self, base_url: str, model: str) -> None:
+        self._client = Ollama(base_url=base_url, model=model)
+
+    async def generate(self, prompt: str) -> str:
+        return await self._client.apredict(prompt)
+
+
+class ModelFactory:
+    """Factory to create model instances."""
+
+    @staticmethod
+    def create(model_name: str | None = None) -> BaseLLMModel:
+        model_name = model_name or os.getenv("LLM_PROVIDER", "ollama")
+        if model_name == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            model = os.getenv("PHI3_MODEL", "phi3.5:3.8b")
+            return OllamaModel(base_url=base_url, model=model)
+        raise ValueError(f"Unknown model provider: {model_name}")
+
+
+class DocumentStore:
+    """Manage document chunks and semantic search."""
+
+    def __init__(self):
+        self.chunks: List[str] = []
+        self.embeddings = []
+        self.client = get_weaviate_client()
+
+    def update(self, text: str) -> None:
+        self.chunks = [text[i : i + 500] for i in range(0, len(text), 500)]
+        self.embeddings = embedder.encode(self.chunks)
+        if self.client is None:
+            logger.warning("Weaviate client is not initialized, skipping storage")
+            return
+        try:
+            try:
+                self.client.collections.delete("DocumentChunk")
+            except Exception:
+                logger.debug("No existing DocumentChunk class to delete")
+            self.client.collections.create(
+                name="DocumentChunk",
+                description="A collection of documents split into chunks for semantic search",
+                properties=[Property(name="text", data_type=DataType.TEXT)],
+                vectorizer_config=Configure.Vectorizer.none(),
+            )
+            collection = self.client.collections.get("DocumentChunk")
+            objects = [
+                DataObject(properties={"text": chunk}, vector=vector.tolist())
+                for chunk, vector in zip(self.chunks, self.embeddings)
+            ]
+            collection.data.insert_many(objects)
+            logger.info("Stored document chunks in Weaviate")
+        except Exception as exc:
+            logger.warning(f"Failed to store in Weaviate: {exc}")
+
+    def search(self, query: str) -> str:
+        if self.client is not None and self.client.collections.exists("DocumentChunk"):
+            collection = self.client.collections.get("DocumentChunk")
+            query_embedding = embedder.encode(query)
+            try:
+                results = collection.query.near_vector(query_embedding.tolist(), limit=3)
+                return "\n---\n".join(obj.properties["text"] for obj in results.objects)
+            except Exception as exc:
+                logger.warning(f"Weaviate query failed: {exc}")
+        if self.chunks and self.embeddings:
+            query_embedding = embedder.encode(query, convert_to_tensor=True)
+            top_results = util.semantic_search(query_embedding, self.embeddings, top_k=3)
+            return "\n---\n".join(self.chunks[match["corpus_id"]] for match in top_results[0])
+        return ""
+
 
 # Simple in-memory storage for conversation history.
 # Maps a session id to a list of (question, answer) tuples.
@@ -85,6 +163,8 @@ def get_weaviate_client():
             logger.warning(f"Could not connect to Weaviate: {e}")
     return weaviate_client
 
+
+document_store = DocumentStore()
 
 class TextDelta(TypedDict):
     id: str
@@ -312,11 +392,9 @@ app.add_middleware(
 
 @app.post("/phi3")
 async def phi3_endpoint(req: Phi3Request):
-    global document_chunks, document_embeddings, mem0
+    global mem0
 
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    model = os.getenv("PHI3_MODEL", "phi3.5:3.8b")
-    llm = Ollama(base_url=base_url, model=model)
+    llm = ModelFactory.create()
 
     session_id = req.session_id or "default"
     history = mem0.get(session_id, [])
@@ -324,25 +402,7 @@ async def phi3_endpoint(req: Phi3Request):
     final_prompt = req.prompt
     context = ""
 
-    client = get_weaviate_client()
-    if client is not None and client.collections.exists("DocumentChunk"):
-        logger.info("Using Weaviate for semantic search")
-        collection = client.collections.get("DocumentChunk")
-        query_embedding = embedder.encode(req.prompt)
-        try:
-            results = collection.query.near_vector(query_embedding.tolist(), limit=3)
-            context = "\n---\n".join(obj.properties["text"] for obj in results.objects)
-        except Exception as e:
-            logger.warning(f"Weaviate query failed: {e}")
-    elif len(document_chunks) > 0 and len(document_embeddings) > 0:
-        logger.info("Using in-memory document embeddings for semantic search")
-        query_embedding = embedder.encode(req.prompt, convert_to_tensor=True)
-        top_results = util.semantic_search(
-            query_embedding, document_embeddings, top_k=3
-        )
-        context = "\n---\n".join(
-            document_chunks[match["corpus_id"]] for match in top_results[0]
-        )
+    context = document_store.search(req.prompt)
 
     conversation = ""
     if history:
@@ -363,7 +423,7 @@ async def phi3_endpoint(req: Phi3Request):
         else:
             final_prompt = req.prompt
     logger.info(f"Final prompt for LLM: {final_prompt}")
-    response = await llm.apredict(final_prompt)
+    response = await llm.generate(final_prompt)
 
     # Store the exchange for future context, keeping only the latest 10 turns
     history.append((req.prompt, response))
@@ -401,7 +461,6 @@ from fastapi import UploadFile, File
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     logger.info(f"Received file upload: {file.filename}")
-    global document_chunks, document_embeddings
 
     contents = await file.read()
     ext = os.path.splitext(file.filename)[1].lower()
@@ -435,46 +494,9 @@ async def upload_file(file: UploadFile = File(...)):
     else:
         return {"error": "Unsupported file format."}
     logger.info(f"File {file.filename} processed, extracted text length: {len(text)}")
-    # Chunk and embed
-    document_chunks = [text[i : i + 500] for i in range(0, len(text), 500)]
-    embeddings = embedder.encode(document_chunks)
-    document_embeddings = embeddings
+    document_store.update(text)
 
-    client = get_weaviate_client()
-    if client is not None:
-        logger.info("Storing document chunks in Weaviate")
-        try:
-            try:
-                # Try to delete existing class if it exists
-                client.collections.delete("DocumentChunk")
-                logger.info("Deleted existing DocumentChunk class")
-            except:
-                logger.error("No existing DocumentChunk class to delete")
-            # if not client.collections.exists("DocumentChunk"):
-            logger.info("Creating Weaviate collection 'DocumentChunk'")
-            client.collections.create(
-                name="DocumentChunk",
-                 description="A collection of documents split into chunks for semantic search",
-                properties=[Property(name="text", data_type=DataType.TEXT)],
-                vectorizer_config=Configure.Vectorizer.none(),
-            )
-                # client.collections.create(
-                #     "DocumentChunk",
-                #     vectorizer="none",
-                #     properties=[{"name": "text", "dataType": "text"}],
-                # )
-            collection = client.collections.get("DocumentChunk")
-            objects = [
-                DataObject(properties={"text": chunk}, vector=vector.tolist())
-                for chunk, vector in zip(document_chunks, embeddings)
-            ]
-            collection.data.insert_many(objects)
-        except Exception as e:
-            logger.warning(f"Failed to store in Weaviate: {e}")
-    else:
-        logger.warning("Weaviate client is not initialized, skipping storage")
-
-    return {"status": "Document uploaded and processed", "chunks": len(document_chunks)}
+    return {"status": "Document uploaded and processed", "chunks": len(document_store.chunks)}
 
 
 if __name__ == "__main__":
