@@ -249,20 +249,46 @@ const ChatInterface = () => {
 
       if (selectedModel === "phi3") {
         try {
-          const response = await fetch("http://localhost:8080/phi3", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: newMessage.content }),
-          });
-          const data = await response.json();
           const assistantMsgId = `assistant-${Date.now()}`;
           const assistantMsg: Message = {
             id: assistantMsgId,
             type: "assistant",
-            content: data.response || "Response received.",
+            content: "Thinking...",
           };
-            messageMap.current.set(assistantMsgId, assistantMsg);
+          messageMap.current.set(assistantMsgId, assistantMsg);
+          setMessages(Array.from(messageMap.current.values()));
+
+          const response = await fetch("http://localhost:8080/phi3-stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: newMessage.content }),
+          });
+
+          if (!response.body) return;
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop() || "";
+
+            for (const part of parts) {
+              if (part.startsWith("data:")) {
+                assistantMsg.content += part.replace(/^data:\s*/, "");
+              }
+            }
             setMessages(Array.from(messageMap.current.values()));
+          }
+
+          if (buffer.startsWith("data:")) {
+            assistantMsg.content += buffer.replace(/^data:\s*/, "");
+          }
         } catch (err) {
           console.error("Error sending to Phi-3:", err);
         }

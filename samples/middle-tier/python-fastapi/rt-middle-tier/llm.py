@@ -11,6 +11,11 @@ class BaseLLMModel(ABC):
         """Generate a response for the given prompt."""
         raise NotImplementedError
 
+    @abstractmethod
+    async def stream(self, prompt: str):
+        """Stream the model response token by token."""
+        raise NotImplementedError
+
 
 class OllamaModel(BaseLLMModel):
     def __init__(self, base_url: str, model: str) -> None:
@@ -18,6 +23,10 @@ class OllamaModel(BaseLLMModel):
 
     async def generate(self, prompt: str) -> str:
         return await self._client.apredict(prompt)
+
+    async def stream(self, prompt: str):
+        async for chunk in self._client.astream(prompt):
+            yield chunk
 
 
 class ModelFactory:
