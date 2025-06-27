@@ -43,6 +43,7 @@ yarn dev
 
 4. Open [http://localhost:3000](http://localhost:3000) in your browser.
    Use the moon icon in the sidebar to switch between light, dark, or Matrix themes.
+   When using the Phi-3 model the app now streams results from `/phi3-stream` and updates the UI in real time.
 
 ## Usage
 

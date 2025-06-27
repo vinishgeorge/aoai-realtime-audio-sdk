@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, UploadFile, File
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
 from pydantic import BaseModel
@@ -8,9 +9,7 @@ import os
 import io
 import tempfile
 import subprocess
-import json
-import uuid
-from typing import Dict, List, Tuple, Union, Literal, TypedDict
+from typing import Dict, List, Tuple
 import pandas as pd
 from bs4 import BeautifulSoup
 import markdown
@@ -55,7 +54,9 @@ async def phi3_endpoint(req: Phi3Request):
     history = mem0.get(session_id, [])
 
     context = document_store.search(req.prompt)
-    conversation = "\n".join(f"User: {q}\nAssistant: {a}" for q, a in history) if history else ""
+    conversation = (
+        "\n".join(f"User: {q}\nAssistant: {a}" for q, a in history) if history else ""
+    )
 
     if context:
         final_prompt = (
@@ -80,6 +81,52 @@ async def phi3_endpoint(req: Phi3Request):
     mem0[session_id] = history[-10:]
 
     return {"response": response}
+
+
+@app.post("/phi3-stream")
+async def phi3_stream(req: Phi3Request):
+    """Stream phi3 response tokens using Server Sent Events."""
+    global mem0
+    llm = ModelFactory.create()
+
+    session_id = req.session_id or "default"
+    history = mem0.get(session_id, [])
+
+    context = document_store.search(req.prompt)
+    conversation = (
+        "\n".join(f"User: {q}\nAssistant: {a}" for q, a in history) if history else ""
+    )
+
+    if context:
+        final_prompt = (
+            "Use the following document excerpts to answer the question.\n\n"
+            f"{context}\n\n"
+        )
+        if conversation:
+            final_prompt += f"{conversation}\nUser: {req.prompt}\nAssistant:"
+        else:
+            final_prompt += f"Question: {req.prompt}\nAnswer:"
+    else:
+        final_prompt = (
+            f"{conversation}\nUser: {req.prompt}\nAssistant:"
+            if conversation
+            else req.prompt
+        )
+
+    logger.info(f"Streaming prompt for LLM: {final_prompt}")
+
+    async def token_generator():
+        collected = ""
+        async for token in llm.stream(final_prompt):
+            collected += token
+            yield f"data: {token}\n\n"
+        history.append((req.prompt, collected))
+        mem0[session_id] = history[-10:]
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(
+        token_generator(), media_type="text/event-stream", headers=headers
+    )
 
 
 @app.websocket("/realtime")
@@ -113,7 +160,9 @@ async def upload_file(file: UploadFile = File(...)):
 
     if ext == ".pdf":
         reader = PdfReader(io.BytesIO(contents))
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        text = "\n".join(
+            page.extract_text() for page in reader.pages if page.extract_text()
+        )
     elif ext == ".txt":
         text = contents.decode("utf-8", errors="ignore")
     elif ext == ".md":
@@ -126,17 +175,24 @@ async def upload_file(file: UploadFile = File(...)):
         with tempfile.NamedTemporaryFile(suffix=".doc") as tmp:
             tmp.write(contents)
             tmp.flush()
-            result = subprocess.run(["antiword", tmp.name], capture_output=True, text=True)
+            result = subprocess.run(
+                ["antiword", tmp.name], capture_output=True, text=True
+            )
             text = result.stdout
     elif ext in {".xls", ".xlsx"}:
         df = pd.read_excel(io.BytesIO(contents), header=None, dtype=str)
-        text = "\n".join(" ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows())
+        text = "\n".join(
+            " ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows()
+        )
     else:
         return {"error": "Unsupported file format."}
 
     logger.info(f"File {file.filename} processed, extracted text length: {len(text)}")
     document_store.update(text)
-    return {"status": "Document uploaded and processed", "chunks": len(document_store.chunks)}
+    return {
+        "status": "Document uploaded and processed",
+        "chunks": len(document_store.chunks),
+    }
 
 
 if __name__ == "__main__":
