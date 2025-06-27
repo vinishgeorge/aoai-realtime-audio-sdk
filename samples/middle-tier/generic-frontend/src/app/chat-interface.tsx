@@ -253,7 +253,7 @@ const ChatInterface = () => {
           const assistantMsg: Message = {
             id: assistantMsgId,
             type: "assistant",
-            content: "...",
+            content: "Thinking...",
           };
           messageMap.current.set(assistantMsgId, assistantMsg);
           setMessages(Array.from(messageMap.current.values()));
@@ -268,18 +268,26 @@ const ChatInterface = () => {
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
+          let buffer = "";
 
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            chunk
-              .split("\n")
-              .filter((line) => line.startsWith("data:"))
-              .forEach((line) => {
-                assistantMsg.content += line.replace(/^data:\s*/, "");
-              });
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop() || "";
+
+            for (const part of parts) {
+              if (part.startsWith("data:")) {
+                assistantMsg.content += part.replace(/^data:\s*/, "");
+              }
+            }
             setMessages(Array.from(messageMap.current.values()));
+          }
+
+          if (buffer.startsWith("data:")) {
+            assistantMsg.content += buffer.replace(/^data:\s*/, "");
           }
         } catch (err) {
           console.error("Error sending to Phi-3:", err);

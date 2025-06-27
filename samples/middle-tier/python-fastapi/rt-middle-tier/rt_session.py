@@ -147,7 +147,9 @@ class RTSession:
                     "delta": text,
                 }
                 await self.send(delta_message)
-            await self.send({"type": "control", "action": "text_done", "id": content_id})
+            await self.send(
+                {"type": "control", "action": "text_done", "id": content_id}
+            )
             self.logger.debug("Text content processed successfully")
         except Exception as error:
             self.logger.error("Error handling text content: %s", error)
@@ -161,8 +163,12 @@ class RTSession:
         async def handle_audio_transcript():
             content_id = f"{content.item_id}-{content.content_index}"
             async for chunk in content.transcript_chunks():
-                await self.send({"id": content_id, "type": "text_delta", "delta": chunk})
-            await self.send({"type": "control", "action": "text_done", "id": content_id})
+                await self.send(
+                    {"id": content_id, "type": "text_delta", "delta": chunk}
+                )
+            await self.send(
+                {"type": "control", "action": "text_done", "id": content_id}
+            )
 
         try:
             await asyncio.gather(handle_audio_chunks(), handle_audio_transcript())
