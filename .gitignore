@@ -406,3 +406,5 @@ FodyWeavers.xsd
 
 # Env files
 .env
+samples/middle-tier/python-fastapi/notebook/chroma_db/
+chroma_db/
