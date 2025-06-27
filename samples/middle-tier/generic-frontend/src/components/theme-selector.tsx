@@ -9,16 +9,17 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 
-type Theme = "light" | "dark" | "dark-blue";
+type Theme = "light" | "dark" | "dark-blue" | "matrix";
 
 const themes: Record<Theme, { label: string; color: string }> = {
   light: { label: "Light", color: "#000000" },
   dark: { label: "Black", color: "#000000" },
   "dark-blue": { label: "Dark Blue", color: "#f08030" },
+  matrix: { label: "Matrix", color: "#39FF14" },
 };
 
 function applyTheme(theme: Theme) {
-  document.documentElement.classList.remove("dark", "dark-blue");
+  document.documentElement.classList.remove("dark", "dark-blue", "matrix");
   if (theme !== "light") {
     document.documentElement.classList.add(theme);
   }

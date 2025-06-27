@@ -7,7 +7,6 @@ from typing import Literal, TypedDict, Union
 from azure.core.credentials import AzureKeyCredential
 from azure.identity.aio import DefaultAzureCredential
 from fastapi import WebSocket
-from fastapi.websockets import WebSocketState
 from loguru import logger
 from rtclient import (
     InputAudioTranscription,

@@ -10,7 +10,7 @@ A Next.js-based chat application demonstrating the usage of RTClient for real-ti
 - ☁️ Support for both OpenAI and Azure OpenAI
 - 🛠️ Configurable conversation settings
 - 🔧 Tool integration support (coming soon)
-- 🌙 Light and dark theme toggle
+- 🌙 Light, dark and Matrix theme toggle
 
 ## Prerequisites
 
@@ -42,7 +42,8 @@ yarn dev
 ```
 
 4. Open [http://localhost:3000](http://localhost:3000) in your browser.
-   Use the moon icon in the sidebar to switch between light and dark themes.
+   Use the moon icon in the sidebar to switch between light, dark, or Matrix themes.
+   When using the Phi-3 model the app now streams results from `/phi3-stream` and updates the UI in real time.
 
 ## Usage
 

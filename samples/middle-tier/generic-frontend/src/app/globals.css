@@ -98,6 +98,34 @@ body {
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
   }
+
+  .matrix {
+    /* Matrix-inspired black and green theme */
+    --background: 0 0% 0%;
+    --foreground: 120 100% 75%;
+    --card: 0 0% 0%;
+    --card-foreground: 120 100% 75%;
+    --popover: 0 0% 0%;
+    --popover-foreground: 120 100% 75%;
+    --primary: 120 69% 30%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 120 20% 12%;
+    --secondary-foreground: 120 100% 75%;
+    --muted: 120 20% 12%;
+    --muted-foreground: 120 30% 60%;
+    --accent: 120 69% 30%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 120 100% 25%;
+    --input: 120 100% 25%;
+    --ring: 120 100% 50%;
+    --chart-1: 120 100% 50%;
+    --chart-2: 120 69% 40%;
+    --chart-3: 120 69% 60%;
+    --chart-4: 120 69% 30%;
+    --chart-5: 120 100% 70%;
+  }
 }
 
 @layer base {

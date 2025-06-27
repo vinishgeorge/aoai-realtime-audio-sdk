@@ -66,7 +66,10 @@ Authentication is handled via `DefaultAzureCredential` from `azure.identity.aio`
     ```
 
 The server listens on `http://localhost:<PORT>` and accepts WebSocket connections at the `/realtime` path.
-It also provides a `POST /phi3` endpoint which sends prompts to a local Phi-3 model via Ollama and returns the generated text.
+It also provides:
+
+- `POST /phi3` for non-streaming completions
+- `POST /phi3-stream` which streams tokens as Server-Sent Events
 
 ## Development Setup
 

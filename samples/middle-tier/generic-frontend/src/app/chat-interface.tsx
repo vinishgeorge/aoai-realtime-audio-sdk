@@ -249,20 +249,38 @@ const ChatInterface = () => {
 
       if (selectedModel === "phi3") {
         try {
-          const response = await fetch("http://localhost:8080/phi3", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: newMessage.content }),
-          });
-          const data = await response.json();
           const assistantMsgId = `assistant-${Date.now()}`;
           const assistantMsg: Message = {
             id: assistantMsgId,
             type: "assistant",
-            content: data.response || "Response received.",
+            content: "...",
           };
-            messageMap.current.set(assistantMsgId, assistantMsg);
+          messageMap.current.set(assistantMsgId, assistantMsg);
+          setMessages(Array.from(messageMap.current.values()));
+
+          const response = await fetch("http://localhost:8080/phi3-stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: newMessage.content }),
+          });
+
+          if (!response.body) return;
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            chunk
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .forEach((line) => {
+                assistantMsg.content += line.replace(/^data:\s*/, "");
+              });
             setMessages(Array.from(messageMap.current.values()));
+          }
         } catch (err) {
           console.error("Error sending to Phi-3:", err);
         }
