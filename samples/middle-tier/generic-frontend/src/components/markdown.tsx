@@ -11,6 +11,14 @@ const Markdown = ({ children }: MarkdownProps) => {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        pre({ node: _node, ...props }) {
+          return (
+            <pre
+              className="bg-muted p-2 rounded overflow-x-auto"
+              {...props}
+            />
+          );
+        },
         code({ node: _node, inline, className, children, ...props }: {
           node?: unknown;
           inline?: boolean;
@@ -19,13 +27,15 @@ const Markdown = ({ children }: MarkdownProps) => {
         } & React.HTMLAttributes<HTMLElement>) {
           if (inline) {
             return (
-              <code className="bg-muted px-1 rounded" {...props}>{children}</code>
+              <code className="bg-muted px-1 rounded" {...props}>
+                {children}
+              </code>
             );
           }
           return (
-            <pre className="bg-muted p-2 rounded overflow-x-auto">
-              <code className={className} {...props}>{children}</code>
-            </pre>
+            <code className={className} {...props}>
+              {children}
+            </code>
           );
         },
       }}
