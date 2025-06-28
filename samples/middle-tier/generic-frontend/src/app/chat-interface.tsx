@@ -257,7 +257,6 @@ const ChatInterface = () => {
           };
           messageMap.current.set(assistantMsgId, assistantMsg);
           setMessages(Array.from(messageMap.current.values()));
-
           const response = await fetch("http://localhost:8080/phi3-stream", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -265,11 +264,11 @@ const ChatInterface = () => {
           });
 
           if (!response.body) return;
-
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
+          let firstChunk = true;
           let buffer = "";
-
+          let full = "";
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
@@ -277,17 +276,33 @@ const ChatInterface = () => {
             buffer += decoder.decode(value, { stream: true });
             const parts = buffer.split("\n\n");
             buffer = parts.pop() || "";
+            if (firstChunk && parts.length > 0) {
+              console.log("First chunk received, processing...");
+              assistantMsg.content = "";
+              firstChunk = false;
+            }
 
             for (const part of parts) {
-              if (part.startsWith("data:")) {
-                assistantMsg.content += part.replace(/^data:\s*/, "");
+              if (!part.trim()) continue;
+
+              for (const line of part.split("\n")) {
+                if (line.startsWith("data:")) {
+                  const m = line.match(/^data:\s?(.*)$/);
+                  if (!m) continue;
+                  const chunk = m[1];
+                  assistantMsg.content += chunk;
+                }
               }
             }
             setMessages(Array.from(messageMap.current.values()));
           }
 
           if (buffer.startsWith("data:")) {
-            assistantMsg.content += buffer.replace(/^data:\s*/, "");
+            const m = buffer.match(/^data:\s?(.*)$/);
+            if (m) {
+              const chunk = m[1];
+              assistantMsg.content += chunk;
+            }
           }
         } catch (err) {
           console.error("Error sending to Phi-3:", err);
@@ -374,13 +389,12 @@ const ChatInterface = () => {
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`p-3 rounded-lg ${
-                  message.type === "user"
-                    ? "bg-primary text-primary-foreground ml-auto max-w-[80%]"
-                    : message.type === "status"
+                className={`p-3 rounded-lg ${message.type === "user"
+                  ? "bg-primary text-primary-foreground ml-auto max-w-[80%]"
+                  : message.type === "status"
                     ? "bg-muted text-muted-foreground mx-auto max-w-[80%] text-center"
                     : "bg-secondary text-secondary-foreground mr-auto max-w-[80%]"
-                }`}
+                  }`}
               >
                 {message.content}
               </div>
@@ -416,7 +430,7 @@ const ChatInterface = () => {
               <Upload className="w-5 h-5" />
             </label>
             <input
-              id="file-upload" 
+              id="file-upload"
               type="file"
               accept=".pdf,.doc,.docx,.txt,.md"
               onChange={handleFileChange}
