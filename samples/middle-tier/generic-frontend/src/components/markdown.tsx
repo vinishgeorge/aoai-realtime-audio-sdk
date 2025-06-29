@@ -11,6 +11,22 @@ const Markdown = ({ children }: MarkdownProps) => {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        table({ node: _node, ...props }) {
+          return (
+            <table className="border-collapse w-full text-sm" {...props} />
+          );
+        },
+        th({ node: _node, ...props }) {
+          return (
+            <th
+              className="border px-2 py-1 bg-muted font-semibold text-left"
+              {...props}
+            />
+          );
+        },
+        td({ node: _node, ...props }) {
+          return <td className="border px-2 py-1" {...props} />;
+        },
         pre({ node: _node, ...props }) {
           return (
             <pre
