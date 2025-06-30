@@ -8,6 +8,7 @@ import SettingsDialog from "@/components/settings-dialog";
 import { Player, Recorder } from "@/lib/audio";
 import { WebSocketClient } from "@/lib/client";
 import ThemeSelector from "@/components/theme-selector";
+import Markdown from "@/components/markdown";
 
 interface Message {
   id: string;
@@ -268,7 +269,6 @@ const ChatInterface = () => {
           const decoder = new TextDecoder();
           let firstChunk = true;
           let buffer = "";
-          let full = "";
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
@@ -396,7 +396,11 @@ const ChatInterface = () => {
                     : "bg-secondary text-secondary-foreground mr-auto max-w-[80%]"
                   }`}
               >
-                {message.content}
+                {message.type === "assistant" ? (
+                  <Markdown>{message.content}</Markdown>
+                ) : (
+                  message.content
+                )}
               </div>
             ))}
           </div>
