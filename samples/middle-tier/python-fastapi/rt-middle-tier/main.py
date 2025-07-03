@@ -119,15 +119,15 @@ async def phi3_stream(req: Phi3Request):
     async def token_generator():
         collected = ""
         buffer = ""
+        pattern = re.compile(r"^\s*\S+[.,!?;:](?=\s|$)|^\s*\S+\s+")
         async for token in llm.stream(final_prompt):
             buffer += token
             while True:
-                match = re.search(r"[\s\n]|[.,!?;:]", buffer)
+                match = pattern.match(buffer)
                 if not match:
                     break
-                idx = match.end()
-                piece = buffer[:idx]
-                buffer = buffer[idx:]
+                piece = match.group(0)
+                buffer = buffer[len(piece) :]
                 collected += piece
                 yield f"data: {piece}\n\n"
         if buffer:
