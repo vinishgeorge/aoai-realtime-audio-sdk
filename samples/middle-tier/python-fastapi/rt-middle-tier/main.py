@@ -16,6 +16,7 @@ import markdown
 from pypdf import PdfReader
 import docx2txt
 from dotenv import load_dotenv
+import re
 
 from .document_store import DocumentStore
 from .llm import ModelFactory
@@ -117,9 +118,21 @@ async def phi3_stream(req: Phi3Request):
 
     async def token_generator():
         collected = ""
+        buffer = ""
+        pattern = re.compile(r"^\s*\S+[.,!?;:](?=\s|$)|^\s*\S+\s+")
         async for token in llm.stream(final_prompt):
-            collected += token
-            yield f"data: {token}\n\n"
+            buffer += token
+            while True:
+                match = pattern.match(buffer)
+                if not match:
+                    break
+                piece = match.group(0)
+                buffer = buffer[len(piece) :]
+                collected += piece
+                yield f"data: {piece}\n\n"
+        if buffer:
+            collected += buffer
+            yield f"data: {buffer}\n\n"
         history.append((req.prompt, collected))
         mem0[session_id] = history[-10:]
 
