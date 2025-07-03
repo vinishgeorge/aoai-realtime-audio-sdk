@@ -91,14 +91,18 @@ class DocumentStore:
             collection = self.client.collections.get("DocumentChunk")
             query_embedding = embedder.encode(query)
             try:
-                results = collection.query.near_vector(query_embedding.tolist(), limit=3)
+                results = collection.query.near_vector(
+                    query_embedding.tolist(), limit=3
+                )
                 return "\n---\n".join(obj.properties["text"] for obj in results.objects)
             except Exception as exc:
                 logger.warning(f"Weaviate query failed: {exc}")
 
         if self.chunks and len(self.embeddings) > 0:
             query_embedding = embedder.encode(query, convert_to_tensor=True)
-            top_results = util.semantic_search(query_embedding, self.embeddings, top_k=3)
+            top_results = util.semantic_search(
+                query_embedding, self.embeddings, top_k=3
+            )
             return "\n---\n".join(
                 self.chunks[match["corpus_id"]] for match in top_results[0]
             )
