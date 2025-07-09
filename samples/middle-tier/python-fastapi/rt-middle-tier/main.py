@@ -6,15 +6,7 @@ from pydantic import BaseModel
 from loguru import logger
 import uvicorn
 import os
-import io
-import tempfile
-import subprocess
 from typing import Dict, List, Tuple
-import pandas as pd
-from bs4 import BeautifulSoup
-import markdown
-from pypdf import PdfReader
-import docx2txt
 from dotenv import load_dotenv
 import re
 
@@ -169,39 +161,7 @@ async def upload_file(file: UploadFile = File(...)):
     logger.info(f"Received file upload: {file.filename}")
 
     contents = await file.read()
-    ext = os.path.splitext(file.filename)[1].lower()
-
-    if ext == ".pdf":
-        reader = PdfReader(io.BytesIO(contents))
-        text = "\n".join(
-            page.extract_text() for page in reader.pages if page.extract_text()
-        )
-    elif ext == ".txt":
-        text = contents.decode("utf-8", errors="ignore")
-    elif ext == ".md":
-        md_text = contents.decode("utf-8", errors="ignore")
-        html = markdown.markdown(md_text)
-        text = BeautifulSoup(html, "html.parser").get_text()
-    elif ext == ".docx":
-        text = docx2txt.process(io.BytesIO(contents))
-    elif ext == ".doc":
-        with tempfile.NamedTemporaryFile(suffix=".doc") as tmp:
-            tmp.write(contents)
-            tmp.flush()
-            result = subprocess.run(
-                ["antiword", tmp.name], capture_output=True, text=True
-            )
-            text = result.stdout
-    elif ext in {".xls", ".xlsx"}:
-        df = pd.read_excel(io.BytesIO(contents), header=None, dtype=str)
-        text = "\n".join(
-            " ".join(filter(None, map(str, row.dropna()))) for _, row in df.iterrows()
-        )
-    else:
-        return {"error": "Unsupported file format."}
-
-    logger.info(f"File {file.filename} processed, extracted text length: {len(text)}")
-    document_store.update(text)
+    document_store.update_from_bytes(contents, file.filename)
     return {
         "status": "Document uploaded and processed",
         "chunks": len(document_store.chunks),

@@ -27,6 +27,9 @@ pandas = "^2.2.2"
 beautifulsoup4 = "^4.12.3"
 markdown = "^3.6"
 weaviate-client = "^4.5.5"
+docling-core = {extras = ["chunking-openai"], version = "^2.40.0"}
+transformers = "^4.53.1"
+docling = "^2.40.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

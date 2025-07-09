@@ -7,6 +7,14 @@ from weaviate.classes.data import DataObject
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.init import Auth
 
+import io
+import tiktoken
+from docling.chunking import HybridChunker
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling_core.types.io import DocumentStream
+from docling_core.types.doc.document import DoclingDocument
+
 
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -54,10 +62,16 @@ class DocumentStore:
         self.embeddings = []
         self.client = get_weaviate_client()
 
-    def update(self, text: str) -> None:
-        """Split, embed, and store chunks from a document."""
-        self.chunks = [text[i : i + 500] for i in range(0, len(text), 500)]
+    def update_document(self, dl_doc: DoclingDocument) -> None:
+        """Chunk a Docling document and store embeddings."""
+        tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        chunker = HybridChunker(tokenizer=tokenizer)
+        self.chunks = [chunk.text for chunk in chunker.chunk(dl_doc)]
         self.embeddings = embedder.encode(self.chunks)
+
+        if not self.chunks:
+            logger.warning("No chunks produced from document")
+            return
 
         if self.client is None:
             logger.warning("Weaviate client not initialized, skipping storage")
@@ -85,20 +99,42 @@ class DocumentStore:
         except Exception as exc:
             logger.warning(f"Failed to store in Weaviate: {exc}")
 
+    def update_from_bytes(self, data: bytes, filename: str) -> None:
+        """Convert a file to a Docling document and update the store."""
+        converter = DocumentConverter(
+            allowed_formats=[
+                InputFormat.PDF,
+                InputFormat.IMAGE,
+                InputFormat.DOCX,
+                InputFormat.HTML,
+                InputFormat.PPTX,
+                InputFormat.ASCIIDOC,
+                InputFormat.CSV,
+                InputFormat.MD,
+            ]
+        )
+        stream = DocumentStream(name=filename, stream=io.BytesIO(data))
+        result = converter.convert(stream)
+        self.update_document(result.document)
+
     def search(self, query: str) -> str:
         """Retrieve relevant context for the query."""
         if self.client is not None and self.client.collections.exists("DocumentChunk"):
             collection = self.client.collections.get("DocumentChunk")
             query_embedding = embedder.encode(query)
             try:
-                results = collection.query.near_vector(query_embedding.tolist(), limit=3)
+                results = collection.query.near_vector(
+                    query_embedding.tolist(), limit=3
+                )
                 return "\n---\n".join(obj.properties["text"] for obj in results.objects)
             except Exception as exc:
                 logger.warning(f"Weaviate query failed: {exc}")
 
         if self.chunks and len(self.embeddings) > 0:
             query_embedding = embedder.encode(query, convert_to_tensor=True)
-            top_results = util.semantic_search(query_embedding, self.embeddings, top_k=3)
+            top_results = util.semantic_search(
+                query_embedding, self.embeddings, top_k=3
+            )
             return "\n---\n".join(
                 self.chunks[match["corpus_id"]] for match in top_results[0]
             )
